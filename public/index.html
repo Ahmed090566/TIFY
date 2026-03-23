@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>This Is For You - تواصل اجتماعي</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="auth-container">
+            <div class="auth-header">
+                <h1 class="logo">✨ This Is For You ✨</h1>
+                <p class="tagline">تواصل مع من تحب بكل سهولة</p>
+            </div>
+            
+            <div id="loginForm" class="auth-form active">
+                <h2>مرحباً بعودتك 👋</h2>
+                <form id="login">
+                    <div class="form-group">
+                        <label>📱 رقم الهاتف</label>
+                        <input type="tel" id="loginPhone" required placeholder="05xxxxxxxx">
+                    </div>
+                    <div class="form-group password-field">
+                        <label>🔒 كلمة المرور</label>
+                        <div class="password-input-wrapper">
+                            <input type="password" id="loginPassword" required placeholder="********">
+                            <button type="button" class="toggle-password" onclick="togglePassword('loginPassword', this)">👁️</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">دخول</button>
+                </form>
+                <p class="auth-switch">ليس لديك حساب؟ <a href="#" onclick="showRegister()">إنشاء حساب جديد</a></p>
+            </div>
+            
+            <div id="registerForm" class="auth-form">
+                <h2>انضم إلينا 🎉</h2>
+                <form id="register">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>👤 الاسم الأول</label>
+                            <input type="text" id="firstName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>👤 الاسم الثاني</label>
+                            <input type="text" id="lastName" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>📱 رقم الهاتف</label>
+                        <input type="tel" id="regPhone" required placeholder="05xxxxxxxx">
+                        <small id="phoneError" style="color: red; display: none; font-size: 12px;">⚠️ رقم الهاتف موجود بالفعل</small>
+                    </div>
+                    <div class="form-group">
+                        <label>✉️ البريد الإلكتروني</label>
+                        <input type="email" id="email" required>
+                        <small id="emailError" style="color: red; display: none; font-size: 12px;">⚠️ البريد الإلكتروني موجود بالفعل</small>
+                    </div>
+                    <div class="form-group password-field">
+                        <label>🔒 كلمة المرور</label>
+                        <div class="password-input-wrapper">
+                            <input type="password" id="regPassword" required>
+                            <button type="button" class="toggle-password" onclick="togglePassword('regPassword', this)">👁️</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">إنشاء حساب</button>
+                </form>
+                <p class="auth-switch">لديك حساب بالفعل؟ <a href="#" onclick="showLogin()">تسجيل الدخول</a></p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
