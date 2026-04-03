@@ -116,24 +116,195 @@ app.post('/api/login', (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
     res.json({
       success: true,
-      user: { id: user.id, firstName: user.first_name, lastName: user.last_name, phone: user.phone, email: user.email, profile_pic: user.profile_pic }
+      user: { 
+        id: user.id, 
+        firstName: user.first_name, 
+        lastName: user.last_name, 
+        phone: user.phone, 
+        email: user.email, 
+        profile_pic: user.profile_pic,
+        created_at: user.created_at
+      }
     });
   });
 });
 
+// ========== API Routes المضافة حديثاً ==========
+
+// جلب جميع المستخدمين (ما عدا المستخدم الحالي)
+app.post('/api/all-users', (req, res) => {
+  const { currentUserId } = req.body;
+  db.all('SELECT id, first_name, last_name, phone, email, profile_pic FROM users WHERE id != ?', [currentUserId], (err, users) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    res.json(users);
+  });
+});
+
+// البحث عن المستخدمين
+app.post('/api/search', (req, res) => {
+  const { query, currentUserId } = req.body;
+  const searchTerm = `%${query}%`;
+  db.all(
+    `SELECT id, first_name, last_name, phone, email, profile_pic FROM users 
+     WHERE id != ? AND (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?) 
+     LIMIT 20`,
+    [currentUserId, searchTerm, searchTerm, searchTerm],
+    (err, users) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      res.json(users);
+    }
+  );
+});
+
+// جلب قائمة المحادثات (آخر رسالة لكل مستخدم)
+app.post('/api/conversations', (req, res) => {
+  const { userId } = req.body;
+  db.all(
+    `SELECT 
+      u.id, u.first_name, u.last_name, u.phone, u.profile_pic,
+      m.message as last_message, m.timestamp as last_time, m.type as last_type,
+      (SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND sender_id = u.id AND is_read = 0) as unread_count
+     FROM users u
+     INNER JOIN (
+       SELECT DISTINCT 
+         CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
+         MAX(timestamp) as max_time
+       FROM messages
+       WHERE sender_id = ? OR receiver_id = ?
+       GROUP BY other_user_id
+     ) latest ON latest.other_user_id = u.id
+     LEFT JOIN messages m ON (m.sender_id = ? AND m.receiver_id = u.id OR m.sender_id = u.id AND m.receiver_id = ?) AND m.timestamp = latest.max_time
+     ORDER BY latest.max_time DESC`,
+    [userId, userId, userId, userId, userId, userId],
+    (err, conversations) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+      res.json(conversations || []);
+    }
+  );
+});
+
+// جلب الرسائل بين مستخدمين
+app.post('/api/messages', (req, res) => {
+  const { user1, user2 } = req.body;
+  db.all(
+    `SELECT * FROM messages 
+     WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+     ORDER BY timestamp ASC`,
+    [user1, user2, user2, user1],
+    (err, messages) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      
+      // تحديث حالة القراءة للرسائل غير المقروءة
+      db.run(
+        `UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+        [user2, user1]
+      );
+      
+      res.json(messages);
+    }
+  );
+});
+
+// إرسال رسالة
 app.post('/api/send-message', (req, res) => {
   const { senderId, receiverId, message, image, type } = req.body;
   db.run(`INSERT INTO messages (sender_id, receiver_id, message, image, type) VALUES (?, ?, ?, ?, ?)`,
     [senderId, receiverId, message || '', image || null, type || 'text'],
     function(err) {
       if (err) return res.status(500).json({ error: 'Error sending message' });
-      const newMessage = { id: this.lastID, sender_id: senderId, receiver_id: receiverId, message: message || '', image: image || null, type: type || 'text', timestamp: new Date().toISOString() };
+      const newMessage = { 
+        id: this.lastID, 
+        sender_id: senderId, 
+        receiver_id: receiverId, 
+        message: message || '', 
+        image: image || null, 
+        type: type || 'text', 
+        timestamp: new Date().toISOString(),
+        edited: 0
+      };
       io.to(`user_${receiverId}`).emit('new_message', newMessage);
       res.json({ success: true, message: newMessage });
     });
 });
 
-// Socket.io
+// تعديل رسالة
+app.post('/api/edit-message', (req, res) => {
+  const { messageId, newMessage, userId } = req.body;
+  db.get(`SELECT sender_id, edit_history FROM messages WHERE id = ?`, [messageId], (err, message) => {
+    if (err || !message) return res.status(500).json({ error: 'Message not found' });
+    if (message.sender_id !== userId) return res.status(403).json({ error: 'Not authorized' });
+    
+    let editHistory = [];
+    if (message.edit_history) {
+      try {
+        editHistory = JSON.parse(message.edit_history);
+      } catch(e) {}
+    }
+    editHistory.push({ oldMessage: message.message, timestamp: new Date().toISOString() });
+    
+    db.run(
+      `UPDATE messages SET message = ?, edited = 1, edit_history = ? WHERE id = ?`,
+      [newMessage, JSON.stringify(editHistory), messageId],
+      (err) => {
+        if (err) return res.status(500).json({ error: 'Error editing message' });
+        res.json({ success: true });
+      }
+    );
+  });
+});
+
+// حذف رسالة
+app.post('/api/delete-message', (req, res) => {
+  const { messageId, userId } = req.body;
+  db.get(`SELECT sender_id FROM messages WHERE id = ?`, [messageId], (err, message) => {
+    if (err || !message) return res.status(500).json({ error: 'Message not found' });
+    if (message.sender_id !== userId) return res.status(403).json({ error: 'Not authorized' });
+    
+    db.run(`DELETE FROM messages WHERE id = ?`, [messageId], (err) => {
+      if (err) return res.status(500).json({ error: 'Error deleting message' });
+      res.json({ success: true });
+    });
+  });
+});
+
+// تحديث الملف الشخصي
+app.post('/api/update-profile', (req, res) => {
+  const { userId, firstName, lastName, email, profilePic } = req.body;
+  
+  let query = 'UPDATE users SET ';
+  const params = [];
+  
+  if (firstName) {
+    query += 'first_name = ?, ';
+    params.push(firstName);
+  }
+  if (lastName) {
+    query += 'last_name = ?, ';
+    params.push(lastName);
+  }
+  if (email) {
+    query += 'email = ?, ';
+    params.push(email);
+  }
+  if (profilePic) {
+    query += 'profile_pic = ?, ';
+    params.push(profilePic);
+  }
+  
+  query = query.slice(0, -2);
+  query += ' WHERE id = ?';
+  params.push(userId);
+  
+  db.run(query, params, function(err) {
+    if (err) return res.status(500).json({ error: 'Error updating profile' });
+    res.json({ success: true });
+  });
+});
+
+// ========== Socket.io ==========
 io.on('connection', (socket) => {
   console.log('🔌 New client connected');
   socket.on('register_user', (userId) => {
@@ -142,6 +313,9 @@ io.on('connection', (socket) => {
   });
   socket.on('typing', (data) => {
     socket.to(`user_${data.receiverId}`).emit('user_typing', { userId: data.userId });
+  });
+  socket.on('disconnect', () => {
+    console.log('🔌 Client disconnected');
   });
 });
 
